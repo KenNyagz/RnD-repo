@@ -1,2 +1,2 @@
 ~~A recreational repository~~  
-*A repository to indicate learning and **growth**.*
+*A repository to for my learning and **growth**.*
