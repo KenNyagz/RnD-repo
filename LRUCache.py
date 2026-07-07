@@ -15,6 +15,8 @@ class LRUCache:
 
 
     def put(self, key: int, value: int) -> None:
+        if self.cache_capacity == 0:
+            return
         if key in self.cache.keys():
             self.cache[key] = value
             self.move_rightward(key)
