@@ -10,7 +10,6 @@ class LRUCache:
         val = self.cache.get(key, -1)
         if val != -1:
             self.move_rightward(key)
-        print(self.cache, '------g0',key, self.access_order)
         return val
 
 
@@ -20,7 +19,6 @@ class LRUCache:
         if key in self.cache.keys():
             self.cache[key] = value
             self.move_rightward(key)
-            print(self.cache, '------p1',key, self.access_order)
             return
 
         if len(self.cache) >= self.cache_capacity:
@@ -31,11 +29,9 @@ class LRUCache:
 
             self.cache[key] = value
             self.access_order.append(key)
-            print(self.cache, '------p2', self.access_order)
         else:
             self.cache[key] = value
             self.access_order.append(key)
-            print(self.cache, '------P', self.access_order)
 
     def move_rightward(self, key: int) -> None:
         self.access_order.remove(key) 
