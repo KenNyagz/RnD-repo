@@ -1,17 +1,14 @@
 import socket  # noqa: F401
 import threading
 import time
-import secondary_functions
+#import secondary_functions
  
 def main():
-    # You can use print statements as follows for debugging, they'll be visible when running tests.
-    print("Logs from your program will appear here!")
- 
-    # Uncomment the code below to pass the first stage
-    #
+    print("Logs from the program will appear here!") # Print debugging logs.
+    
     lock = threading.Lock()
     keyVal_map = {}
-    existing_lists = []
+    existing_lists = {}
  
     def handleConn(conn):
  
@@ -90,11 +87,29 @@ def main():
                     data = data[6:] #select from 6th byte onwards only
                     data_str = data.decode()
                     elems = data_str.split()
-                    list_name = elems[0]
  
-                    secondary_functions.rpush(elems, rpush_list)
-                    return_val = "(integer) " + str(len(rpush_list)) + "\r\n"
-                    conn.sendall(return_val.encode())
+                    if len(elems) < 1:
+                        conn.sendall(b"-1\r\n")
+                        #print(existing_lists) #for debugging
+                        continue
+ 
+                    list_name = elems[0]
+                    list_elems = elems[1:]
+                    if list_name not in existing_lists:
+                        existing_lists[list_name] = [] #Create new list if not existing
+                        for element in list_elems:
+                            existing_lists[list_name].append(element)
+ 
+                        return_val = ":" + str(len(existing_lists[list_name])) + "\r\n"
+                        conn.sendall(return_val.encode())
+                        continue
+                    else:
+                        for element in list_elems:
+                            existing_lists[list_name].append(element)
+ 
+                        return_val = ":" + str(len(existing_lists[list_name])) + "\r\n"
+                        conn.sendall(return_val.encode())
+                        continue
  
  
     server_socket = socket.create_server(("127.0.0.1", 6379), reuse_port=True)
