@@ -16,9 +16,10 @@ def main():
     def handleConn(conn):
         
         #with lock: #Lock to prevent race conditions, A lock at this point blocks the entire socket
+        try:
             while True:
                 data = conn.recv(1024)
-                print(data)
+                #print(data)
                 if not data:
                     break
 
@@ -198,6 +199,11 @@ def main():
                             conn.sendall(return_val.encode())
                             continue
                         if stop < 0: #if stop is a -ve, handle -ve indexing
+                            if len(lst) == 1 and stop == -1: #handle edge case
+                                rtn = str(lst[0]) + "\r\n"
+                                conn.sendall(rtn.encode())
+                                continue
+
                             stop = len(lst) + stop
                             if stop < 1: # if stop exceeds 1st element, abort
                                 conn.sendall(b'-1\r\n')
@@ -245,15 +251,133 @@ def main():
                     conn.sendall(return_val.encode())
                     continue
 
-                #elif data[1:6] == b"LPUSH":
+                elif data[1:6] == b"LPUSH":
+                    data = data[6:]
+                    data = data.decode()
+                    elems = data.split()
 
-                #conn.close() #For c;osing pending/failed/suspended connections
+                    if len(elems) < 1:
+                        conn.sendall(b"-1\r\n")
+                        #print(existing_lists) #for debugging
+                        continue
+
+                    list_name = elems[0]
+                    list_elems = elems[1:]
+                    if list_name not in existing_lists:
+                        with lock:
+                            existing_lists[list_name] = [] #Create new list if not existent
+                        for element in list_elems:
+                            try:  # Check if input is an int or float, then add to list
+                                if eval(element) != str:  # use eval to read str as code
+                                    with lock:
+                                        existing_lists[list_name].insert(0, eval(element)) #add to beginning
+                                    continue
+
+                            except Exception as e:
+                                pass # if str, eval will raise a "variable not defined" error, ignore, move to next line
+                            with lock:
+                                existing_lists[list_name][:0] = [element]
+
+                        return_val = ":" + str(len(existing_lists[list_name])) + "\r\n"
+                        conn.sendall(return_val.encode())
+                        continue
+                    else:
+                        for element in list_elems:
+                            try:  # Check if input is an int or float, then add to list
+                                if eval(element) != str:
+                                    with lock:
+                                        existing_lists[list_name][:0] = [eval(element)]
+                                    continue
+
+                            except Exception as e:
+                                pass # if str, eval will raise a variable not defined error, move to next line
+                            with lock:
+                                existing_lists[list_name][:0] = [element] #add to beginning
+
+                        return_val = ":" + str(len(existing_lists[list_name])) + "\r\n"
+                        conn.sendall(return_val.encode())
+                        continue
+
+                elif data[1:5] == b"LLEN":
+                    data = data[5:]
+                    data = data.decode()
+                    elems = data.split()
+
+                    if len(elems) != 1:
+                        conn.sendall(b'-1\r\n')
+                        continue
+
+                    list_key = elems[0]
+                    if list_key not in existing_lists:
+                        conn.sendall(b'0\r\n')
+                        continue
+                    else:
+                        rtn = str(len(existing_lists[list_key])) + "\r\n"
+                        conn.sendall(rtn.encode())
+                        continue
+
+                elif data[1:5] == b"LPOP":
+                    data = data[5:]
+                    data = data.decode()
+                    elems = data.split()
+
+                    if len(elems) < 1:
+                        conn.sendall(b'-1\r\n')
+                        continue
+
+                    list_key = elems[0]
+                    if list_key not in existing_lists:
+                        conn.sendall(b'$-1\r\n')
+                        continue
+
+                    if len(existing_lists[list_key]) < 1: #edge case: If list is empty
+                        conn.sendall(b'$-1\r\n') #return null bulk dtr
+                        continue
+
+                    if len(elems) == 1: #if only list-key provided
+                        rtn = str(existing_lists[list_key][0]) + "\r\n"
+                        existing_lists[list_key] = existing_lists[list_key][1:]
+                        conn.sendall(rtn.encode())
+                        continue
+                    elif len(elems) == 2:
+                        try:
+                            remove = int(elems[1])
+                        except Exception as e:
+                            conn.sendall(b"$-1\r\n")
+                            continue
+
+                        if remove > len(existing_lists[list_key]): #if number of items to remove exceed the list:
+                            conn.sendall(b"$-1\r\n")
+                            continue
+                        i = 0
+                        rtn = ''
+                        while i < remove:
+                            rtn += str(i + 1) + ') ' + str(existing_lists[list_key][0]) + "\r\n"
+                            existing_lists[list_key] = existing_lists[list_key][1:]
+                            i += 1
+
+                        conn.sendall(rtn.encode())
+                        continue
+
+                    else:
+                        conn.sendall(b"$-1\r\n")
+                        continue
+
+                #elif data[1:6] == b"BLPOP":
+
+
+        except:
+            pass
+        finally:
+            pass
+            #conn.close() #For closing pending/failed/suspended connections
+
     server_socket = socket.create_server(("127.0.0.1", 6379), reuse_port=True)
 
     while True:
         conn, _ = server_socket.accept() # wait for client connection
 
-        print(conn, _)
+        #print(conn, _)
         thread = threading.Thread(target=handleConn, args=(conn,))
         thread.start()
 
