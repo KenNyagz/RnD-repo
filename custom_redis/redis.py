@@ -1,7 +1,6 @@
 import socket  # noqa: F401
 import threading
 import time
-#import secondary_functions
 
 def main():
     # You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -12,6 +11,7 @@ def main():
     lock = threading.Lock()
     keyVal_map = {}
     existing_lists = {}
+    awaken = threading.Event() #for use with BLPOP
 
     def handleConn(conn):
         
@@ -19,7 +19,7 @@ def main():
         try:
             while True:
                 data = conn.recv(1024)
-                #print(data)
+                print(data)
                 if not data:
                     break
 
@@ -54,6 +54,8 @@ def main():
                     else:
                         with lock:
                             keyVal_map[key] = val # For the values without TTL
+
+                    awaken.set() #if blpop waits
                     conn.sendall(b'+OK\r\n')
                     continue
 
@@ -74,9 +76,9 @@ def main():
                                     conn.sendall(str(keyVal_map[key]).encode())
                                     #conn.sendall(keyVal_map[key]["value"].encode())
                                 else:
+                                    conn.sendall(b'+Key Expired\r\n')
                                     with lock:
                                         del (keyVal_map[key])
-                                    conn.sendall(b'+Key Expired\r\n')
                                 continue
                             if "PX" in keyVal_map[key]:
                                 #print(time.time() * 1000 - keyVal_map[key]["PX"], keyVal_map[key]["time_created"])
@@ -84,9 +86,9 @@ def main():
                                     conn.sendall(str(keyVal_map[key]).encode())
                                     #conn.sendall(keyVal_map[key]["value"].encode())
                                 else:
+                                    conn.sendall(b'+Key Expired\r\n')
                                     with lock:
                                         del (keyVal_map[key])
-                                    conn.sendall(b'+Key Expired\r\n')
                                 continue
 
                         #elif keyVal_map.get(key, -1) != -1:  #Currently not handling keys with multiple non-TTL attributes
@@ -119,13 +121,13 @@ def main():
                                 if eval(element) != str:  # use eval to read str as code
                                     with lock:
                                         existing_lists[list_name].append(eval(element))
-                                    continue
 
                             except Exception as e:
                                 pass # if str, eval will raise a "variable not defined" error, ignore, move to next line
                             with lock:
                                 existing_lists[list_name].append(element)
 
+                        awaken.set() #notify waiting thread on BLPOP
                         return_val = ":" + str(len(existing_lists[list_name])) + "\r\n"
                         conn.sendall(return_val.encode())
                         continue
@@ -135,13 +137,14 @@ def main():
                                 if eval(element) != str:
                                     with lock:
                                         existing_lists[list_name].append(eval(element))
-                                    continue
 
                             except Exception as e:
                                 pass # if str, eval will raise a variable not defined error, move to next line
                             with lock:
                                 existing_lists[list_name].append(element)
 
+
+                        awaken.set() #notify waiting thread on BLPOP
                         return_val = ":" + str(len(existing_lists[list_name])) + "\r\n"
                         conn.sendall(return_val.encode())
                         continue
@@ -205,7 +208,7 @@ def main():
                                 continue
 
                             stop = len(lst) + stop
-                            if stop < 1: # if stop exceeds 1st element, abort
+                            if stop < 1: # if stop exceeds 1st element, abort:edge case
                                 conn.sendall(b'-1\r\n')
                                 continue
                             for i in range(start, stop + 1): # build resp str
@@ -236,7 +239,7 @@ def main():
 
                     # +ve indexing
                     if start >= len(lst) or start >= stop:
-                        conn.sendall(b"[]\r\n")
+                        conn.sendall(b"-1\r\n")
                         continue
 
                     if stop >= len(lst): #if stop exceeds the list
@@ -271,13 +274,13 @@ def main():
                                 if eval(element) != str:  # use eval to read str as code
                                     with lock:
                                         existing_lists[list_name].insert(0, eval(element)) #add to beginning
-                                    continue
 
                             except Exception as e:
                                 pass # if str, eval will raise a "variable not defined" error, ignore, move to next line
                             with lock:
                                 existing_lists[list_name][:0] = [element]
 
+                        awaken.set()
                         return_val = ":" + str(len(existing_lists[list_name])) + "\r\n"
                         conn.sendall(return_val.encode())
                         continue
@@ -287,13 +290,14 @@ def main():
                                 if eval(element) != str:
                                     with lock:
                                         existing_lists[list_name][:0] = [eval(element)]
-                                    continue
 
                             except Exception as e:
                                 pass # if str, eval will raise a variable not defined error, move to next line
                             with lock:
                                 existing_lists[list_name][:0] = [element] #add to beginning
 
+
+                        awaken.set()
                         return_val = ":" + str(len(existing_lists[list_name])) + "\r\n"
                         conn.sendall(return_val.encode())
                         continue
@@ -336,7 +340,8 @@ def main():
 
                     if len(elems) == 1: #if only list-key provided
                         rtn = str(existing_lists[list_key][0]) + "\r\n"
-                        existing_lists[list_key] = existing_lists[list_key][1:]
+                        with lock:
+                            existing_lists[list_key] = existing_lists[list_key][1:]
                         conn.sendall(rtn.encode())
                         continue
                     elif len(elems) == 2:
@@ -346,14 +351,15 @@ def main():
                             conn.sendall(b"$-1\r\n")
                             continue
 
-                        if remove > len(existing_lists[list_key]): #if number of items to remove exceed the list:
+                        if remove > len(existing_lists[list_key]): #if number of items to remove exceeds the list:
                             conn.sendall(b"$-1\r\n")
                             continue
-                        i = 0
+                        i = 1
                         rtn = ''
                         while i < remove:
-                            rtn += str(i + 1) + ') ' + str(existing_lists[list_key][0]) + "\r\n"
-                            existing_lists[list_key] = existing_lists[list_key][1:]
+                            rtn += str(i) + ') ' + str(existing_lists[list_key][0]) + "\r\n"
+                            with lock:
+                                existing_lists[list_key] = existing_lists[list_key][1:]
                             i += 1
 
                         conn.sendall(rtn.encode())
@@ -363,21 +369,69 @@ def main():
                         conn.sendall(b"$-1\r\n")
                         continue
 
-                #elif data[1:6] == b"BLPOP":
+                elif data[1:6] == b"BLPOP":
+                    data = data[6:]
+                    data = data.decode()
+                    elems = data.split()
+
+                    if len(elems) < 2:
+                        conn.sendall(b'$-1\r\n')
+                        continue
+
+                    try:
+                        timeout = int(elems[-1])
+                    except Exception as e: #if event not an integer
+                        conn.sendall(b'$-1\r\n'.encode()) #abort 
+                        continue
+
+                    if timeout < 0: #if timeout give is a -ve int
+                        conn.sendall(b'$-1\r\n'.encode()) #abort 
+                        continue
+
+                    list_keys = elems[:-1] #all lst elements except the last
+                    present_lists = []
+
+                    rtn = ''
+                    count = 1
+                    for key in list_keys:
+                        if key in existing_lists:
+                            present_lists.append(key)
+
+                        if not present_lists and timeout > 0: #if given list keys present are non existent,
+                            awaken.wait(timeout) #set the thread event to wait until timeout runs out
+                        elif not present_lists and timeout == 0:  #if timeout is 0
+                            awaken.wait() # set thread event to wait indefinitely
+                        time.sleep(0.01) #wait a little for writing threads to complete
+
+                        removed = existing_lists[key][0] #remove first element of first list key
+                        with lock:
+                            existing_lists[key] = existing_lists[key][1:]
+                        rtn += str(count) + ') ' + removed + '\r\n'
+                        count += 1
+
+                    awaken.clear() #reset the thread event
+                    if rtn == '': #if nothing was found
+                        conn.sendall(b"*-1\r\n")
+                    else:
+                        conn.sendall(rtn.encode())
+                    continue
 
 
-        except:
-            pass
+                else:
+                    continue
+                    #pass #will handle other cases
+        
+        except Exception as e:
+            handleConn(conn) #if sth breaks, reignite the connection loop
         finally:
-            pass
-            #conn.close() #For closing pending/failed/suspended connections
+            conn.close() #Close pending/failed/suspended connections
 
     server_socket = socket.create_server(("127.0.0.1", 6379), reuse_port=True)
 
     while True:
         conn, _ = server_socket.accept() # wait for client connection
 
-        #print(conn, _)
+        #print(conn, ' - ', _)
         thread = threading.Thread(target=handleConn, args=(conn,))
         thread.start()
 
