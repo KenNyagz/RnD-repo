@@ -55,7 +55,7 @@ def main():
                         with lock:
                             keyVal_map[key] = val # For the values without TTL
 
-                    awaken.set() #if blpop waits
+                    #awaken.set() #if blpop waits - - not associated with list keys
                     conn.sendall(b'+OK\r\n')
                     continue
 
@@ -72,7 +72,7 @@ def main():
                     if type(keyVal_map.get(key)) == dict:
                         if "time_created" in keyVal_map[key]: #if key had a TTL attr
                             if "EX" in keyVal_map[key]:
-                                if time.time() <= keyVal_map[key]["time_created"] + keyVal_map[key]["EX"]:
+                                if time.time() < keyVal_map[key]["time_created"] + keyVal_map[key]["EX"]:
                                     conn.sendall(str(keyVal_map[key]).encode())
                                     #conn.sendall(keyVal_map[key]["value"].encode())
                                 else:
@@ -82,7 +82,7 @@ def main():
                                 continue
                             if "PX" in keyVal_map[key]:
                                 #print(time.time() * 1000 - keyVal_map[key]["PX"], keyVal_map[key]["time_created"])
-                                if time.time() * 1000 <= keyVal_map[key]["time_created"] * 1000 + keyVal_map[key]["PX"]:
+                                if time.time() * 1000 < keyVal_map[key]["time_created"] * 1000 + keyVal_map[key]["PX"]:
                                     conn.sendall(str(keyVal_map[key]).encode())
                                     #conn.sendall(keyVal_map[key]["value"].encode())
                                 else:
@@ -121,6 +121,7 @@ def main():
                                 if eval(element) != str:  # use eval to read str as code
                                     with lock:
                                         existing_lists[list_name].append(eval(element))
+                                    continue
 
                             except Exception as e:
                                 pass # if str, eval will raise a "variable not defined" error, ignore, move to next line
@@ -137,6 +138,7 @@ def main():
                                 if eval(element) != str:
                                     with lock:
                                         existing_lists[list_name].append(eval(element))
+                                    continue
 
                             except Exception as e:
                                 pass # if str, eval will raise a variable not defined error, move to next line
@@ -274,6 +276,7 @@ def main():
                                 if eval(element) != str:  # use eval to read str as code
                                     with lock:
                                         existing_lists[list_name].insert(0, eval(element)) #add to beginning
+                                    continue
 
                             except Exception as e:
                                 pass # if str, eval will raise a "variable not defined" error, ignore, move to next line
@@ -290,6 +293,7 @@ def main():
                                 if eval(element) != str:
                                     with lock:
                                         existing_lists[list_name][:0] = [eval(element)]
+                                    continue
 
                             except Exception as e:
                                 pass # if str, eval will raise a variable not defined error, move to next line
@@ -403,18 +407,30 @@ def main():
                             awaken.wait() # set thread event to wait indefinitely
                         time.sleep(0.01) #wait a little for writing threads to complete
 
-                        removed = existing_lists[key][0] #remove first element of first list key
+                        removed = existing_lists.get(key, -1) # Get list to be popped
+                        if removed == -1 and timeout:
+                            conn.sendall(b"* -1\r\n")
+                            #awaken.set()
+                            raise KeyError #throw it to exception handler; for reconnection
+
+                        removed = removed[0] #Get first element of first list key
                         with lock:
                             existing_lists[key] = existing_lists[key][1:]
                         rtn += str(count) + ') ' + removed + '\r\n'
+                        rmv_key = key
                         count += 1
 
                     awaken.clear() #reset the thread event
+                    
                     if rtn == '': #if nothing was found
                         conn.sendall(b"*-1\r\n")
                     else:
+                        rtn = "0) " + rmv_key + '\r\n' + rtn
                         conn.sendall(rtn.encode())
                     continue
+
+                elif data[1:5] == b"XADD":
+                    
 
 
                 else:
@@ -422,6 +438,7 @@ def main():
                     #pass #will handle other cases
         
         except Exception as e:
+            #raise e
             handleConn(conn) #if sth breaks, reignite the connection loop
         finally:
             conn.close() #Close pending/failed/suspended connections
