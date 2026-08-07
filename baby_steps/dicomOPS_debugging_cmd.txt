@@ -1,0 +1,22 @@
+Worklist manager launch
+wlmscpfs.exe -dfp c:\worklist 11112
+wlmscpfs.exe -v -d -dfr -dfp c:\worklist 11112
+
+Text to dicom conversion
+dump2dcm.exe +E <file_in> <file_out>
+
+Worklist query simulation
+findscu -v -W -aet DCMTKWLM -aec DCMTK_WLM localhost 11112 c:\worklist\DCMTK_WLM\<.wl file>
+
+Echo PACS - to see if its up and running
+echoscu -v -aec DICOMWEB_PACS -aet CALLING_AET 127.0.0.1 8888
+
+#Debugging
+netstat -ano | findstr :PORT
+tasklist | findstr PID
+Get-ScheduledTaskInfo -Taskname "Run worklist"
+
+Receive-Job -Id 1                  or               Receive-Job -Name "ProcessCheck"
+Get-ScheduledJob -Name "DICOM-WLMSCPFS" | Get-Job | Receive-Job
+
+findscu -v -aet RADIANT -aec DICOMWEB_PACS -S -k QueryRetrieveLevel=STUDY -k PatientName="*" 127.0.0.1 8888
