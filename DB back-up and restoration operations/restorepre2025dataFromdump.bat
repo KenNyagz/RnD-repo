@@ -1,0 +1,1 @@
+"C:\Program Files\MySQL\MySQL Server 5.7\bin\mysql.exe" -u root -p prodDb < "C:\pre2025dumps.sql"
